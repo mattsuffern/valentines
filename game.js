@@ -24,16 +24,34 @@ player.position.y = 0.5;
 camera.position.set(0, 5, 10);
 camera.lookAt(player.position);
 
+// Add Lighting to the Scene
+const pointLight = new THREE.PointLight(0xffffff, 1, 100);
+pointLight.position.set(10, 10, 10);  // Position the light
+scene.add(pointLight);
+
+// Optionally, add a light helper to visualize the light's position
+const lightHelper = new THREE.PointLightHelper(pointLight, 1);
+scene.add(lightHelper);
+
 // Handle Keyboard Input
 const keys = {};
 document.addEventListener('keydown', (event) => keys[event.code] = true);
 document.addEventListener('keyup', (event) => keys[event.code] = false);
+
+function updateCameraPosition() {
+    camera.position.x = player.position.x;
+    camera.position.z = player.position.z + 10;  // Adjust the distance as needed
+    camera.position.y = 5;  // Maintain the height of the camera
+    camera.lookAt(player.position);
+}
 
 function update() {
     if (keys['ArrowUp']) player.position.z -= 0.1;
     if (keys['ArrowDown']) player.position.z += 0.1;
     if (keys['ArrowLeft']) player.position.x -= 0.1;
     if (keys['ArrowRight']) player.position.x += 0.1;
+
+    updateCameraPosition();  // Keep camera updated with player movement
 }
 
 // Game Loop
