@@ -7,8 +7,8 @@ const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-// Create Ground
-const planeGeometry = new THREE.PlaneGeometry(20, 20);
+// Create an Infinite Floor (Large Ground Plane)
+const planeGeometry = new THREE.PlaneGeometry(1000, 1000);  // Increased size for the "infinite" effect
 const planeMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
 const plane = new THREE.Mesh(planeGeometry, planeMaterial);
 plane.rotation.x = -Math.PI / 2;
