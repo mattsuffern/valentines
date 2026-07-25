@@ -1,16 +1,116 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Game</title>
-    <style>
-        body { margin: 0; overflow: hidden; }
-        canvas { display: block; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>A Walk in the Meadow</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Quicksand:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream: #fff8ed;
+    --brown: #5b4636;
+    --rose: #e8607a;
+    --shadow: rgba(91,70,54,0.18);
+  }
+  html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; }
+  body {
+    background: linear-gradient(to bottom, #ffd9a0 0%, #ffe9c4 35%, #fff3d6 55%, #eaf6e9 100%);
+    font-family: 'Quicksand', sans-serif;
+  }
+  canvas { display: block; touch-action: none; }
+
+  #ui {
+    position: fixed;
+    top: 16px;
+    left: 16px;
+    background: var(--cream);
+    border-radius: 20px;
+    padding: 12px 20px;
+    box-shadow: 0 6px 16px var(--shadow);
+    color: var(--brown);
+    user-select: none;
+    pointer-events: none;
+  }
+  #ui .stat { font-family: 'Fredoka', sans-serif; font-size: 17px; line-height: 1.5; white-space: nowrap; }
+  #ui .stat b { color: var(--rose); }
+
+  #instructions {
+    position: fixed;
+    bottom: 26px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--cream);
+    border-radius: 18px;
+    padding: 10px 22px;
+    box-shadow: 0 6px 16px var(--shadow);
+    color: var(--brown);
+    font-size: 15px;
+    text-align: center;
+    transition: opacity 0.8s ease;
+    user-select: none;
+    pointer-events: none;
+  }
+  #instructions.hidden { opacity: 0; }
+
+  #title {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Fredoka', sans-serif;
+    font-size: 22px;
+    color: var(--brown);
+    text-shadow: 0 2px 6px rgba(255,255,255,0.6);
+    transition: opacity 1s ease;
+    user-select: none;
+    pointer-events: none;
+  }
+  #title.hidden { opacity: 0; }
+
+  /* Touch controls (mobile only, added via JS) */
+  #touch-controls {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 150px;
+    height: 150px;
+    display: none;
+  }
+  #touch-controls button {
+    position: absolute;
+    width: 50px;
+    height: 50px;
+    border-radius: 14px;
+    border: none;
+    background: rgba(255,248,237,0.85);
+    box-shadow: 0 4px 10px var(--shadow);
+    font-size: 20px;
+    color: var(--brown);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #btn-up    { top: 0;    left: 50px; }
+  #btn-down  { top: 100px; left: 50px; }
+  #btn-left  { top: 50px;  left: 0; }
+  #btn-right { top: 50px;  left: 100px; }
+</style>
 </head>
 <body>
-    <script type="module" src="game.js"></script>
+  <div id="title">🌼 A Walk in the Meadow 🌼</div>
+  <div id="ui">
+    <div class="stat">🌸 Carrying: <b id="carrying">0</b></div>
+    <div class="stat">💐 Given to her: <b id="given">0</b></div>
+  </div>
+  <div id="instructions">Walk with WASD or Arrow Keys • Stroll near a flower to pick it • Bring your bouquet to her ❤️</div>
+
+  <div id="touch-controls">
+    <button id="btn-up">⬆</button>
+    <button id="btn-down">⬇</button>
+    <button id="btn-left">⬅</button>
+    <button id="btn-right">➡</button>
+  </div>
+
+  <script type="module" src="game.js"></script>
 </body>
 </html>
-
