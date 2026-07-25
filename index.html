@@ -14,11 +14,8 @@
     --rose: #e8607a;
     --shadow: rgba(91,70,54,0.18);
   }
-  html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; }
-  body {
-    background: linear-gradient(to bottom, #ffd9a0 0%, #ffe9c4 35%, #fff3d6 55%, #eaf6e9 100%);
-    font-family: 'Quicksand', sans-serif;
-  }
+  html, body { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #8bbf6a; }
+  body { font-family: 'Quicksand', sans-serif; }
   canvas { display: block; touch-action: none; }
 
   #ui {
@@ -51,6 +48,7 @@
     transition: opacity 0.8s ease;
     user-select: none;
     pointer-events: none;
+    max-width: 90vw;
   }
   #instructions.hidden { opacity: 0; }
 
@@ -69,7 +67,7 @@
   }
   #title.hidden { opacity: 0; }
 
-  /* Touch controls (mobile only, added via JS) */
+  /* Touch controls (mobile only, shown via JS) */
   #touch-controls {
     position: fixed;
     bottom: 24px;
@@ -111,6 +109,6 @@
     <button id="btn-right">➡</button>
   </div>
 
-  <script type="module" src="game.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
