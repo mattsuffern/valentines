@@ -516,11 +516,11 @@ function drawButterfly(x, y, color, flap) {
 const WASP_BASE_COUNT = 2;
 const WASP_MAX_COUNT = 14;
 const WASP_PER_FLOWERS = 3;      // +1 wasp for every N flowers given
-const WASP_SCALE = 3.0;          // human-sized — these are BIG wasps now
-const WASP_WANDER_SPEED = 115;
-const WASP_CHASE_SPEED = 150;
+const WASP_SCALE = 1.5;          // Half-sized — these used to be 3.0
+const WASP_WANDER_SPEED = 145;   // Faster wander (used to be 115)
+const WASP_CHASE_SPEED = 190;    // Faster chase (used to be 150)
 const WASP_NOTICE_RADIUS = 240;  // starts flying at the player within this range
-const WASP_STING_RADIUS = 34;
+const WASP_STING_RADIUS = 17;    // Halved from 34 to match the new visual size
 const RESPAWN_INVULN_TIME = 1.8;
 
 const wasps = []; // { x, y, wanderAngle, wingPhase }
