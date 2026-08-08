@@ -54,7 +54,7 @@ function clamp(v, lo, hi) {
 }
 
 // ---------- World constants ----------
-const FIELD_RADIUS = 900;
+const FIELD_RADIUS = 1300;
 const SPEED = 260;              // px/sec
 const MAX_CARRY = 6;
 const PICKUP_RADIUS = 42;
@@ -294,15 +294,15 @@ function makePerson(x, y, palette) {
   return { x, y, facing: 'down', walking: false, walkPhase: 0, idlePhase: Math.random() * Math.PI * 2, palette, waveTimer: 0 };
 }
 
-const player = makePerson(0, 320, {
-  skin: '#e8b98a', hair: '#3b2a20', body: '#8a5c3c', outfit: 'shirt', hairLong: false
+const player = makePerson(0, 480, {
+  skin: '#e8b98a', hair: '#3b2a20', body: '#8a5c3c', outfit: 'shirt', hairLength: 0
 });
 player.carrying = 0;
 player.invulnerable = false;
 player.invulnTimer = 0;
 
-const girlfriend = makePerson(0, -560, {
-  skin: '#efc49b', hair: '#5c3a22', body: '#4a78c9', outfit: 'dress', hairLong: true
+const girlfriend = makePerson(0, -260, {
+  skin: '#efc49b', hair: '#5c3a22', body: '#8a5fd6', outfit: 'dress', hairLength: 8
 });
 girlfriend.facing = 'down';
 girlfriend.given = 0;
@@ -367,18 +367,18 @@ function drawPerson(p, isGirlfriend) {
     }
   }
 
-  // long hair draping past the shoulders
-  if (palette.hairLong) {
+  // hair draping past the shoulders — length varies per character
+  if (palette.hairLength > 0) {
     ctx.fillStyle = palette.hair;
-    ellipse(ctx, x - 11, cy - 3, 4.5, 13);
-    ellipse(ctx, x + 11, cy - 3, 4.5, 13);
+    ellipse(ctx, x - 11, cy - 1, 4.5, palette.hairLength);
+    ellipse(ctx, x + 11, cy - 1, 4.5, palette.hairLength);
   }
 
   if (isGirlfriend) {
-    ctx.fillStyle = '#ffffff';
-    circle(ctx, x - 8, cy - 26, 3.4);
-    circle(ctx, x + 8, cy - 26, 3.4);
-    circle(ctx, x, cy - 26, 2.6);
+    // a little flower crown instead of the old sparkle accents
+    drawFlower(x - 8, cy - 26, '#ff8552', 0.35, 0.4, elapsed);
+    drawFlower(x, cy - 29, '#ffc145', 0.4, 1.1, elapsed);
+    drawFlower(x + 8, cy - 26, '#b185db', 0.35, 2.0, elapsed);
   }
 
   return cy;
@@ -429,7 +429,7 @@ function spawnFlower() {
   });
 }
 
-const MAX_FLOWERS = 34;
+const MAX_FLOWERS = 50;
 for (let i = 0; i < MAX_FLOWERS; i++) spawnFlower();
 
 // ---------- Trees / bushes ----------
@@ -464,8 +464,8 @@ const bushes = [];  // decorative only, no collision
 // The curve's point (t = pi) is flipped to face down the screen so
 // it reads as a heart with its tip toward the player's start and its
 // two lobes toward the far side of the field.
-const HEART_TREE_COUNT = 46;
-const HEART_SCALE = (FIELD_RADIUS + 70) / 17;
+const HEART_TREE_COUNT = 60;
+const HEART_SCALE = (FIELD_RADIUS + 90) / 17;
 for (let i = 0; i < HEART_TREE_COUNT; i++) {
   const t = (i / HEART_TREE_COUNT) * Math.PI * 2;
   const hx = 16 * Math.pow(Math.sin(t), 3);
@@ -516,10 +516,11 @@ function drawButterfly(x, y, color, flap) {
 const WASP_BASE_COUNT = 2;
 const WASP_MAX_COUNT = 14;
 const WASP_PER_FLOWERS = 3;      // +1 wasp for every N flowers given
-const WASP_WANDER_SPEED = 150;
-const WASP_CHASE_SPEED = 195;
-const WASP_NOTICE_RADIUS = 220;  // starts flying at the player within this range
-const WASP_STING_RADIUS = 20;
+const WASP_SCALE = 3.0;          // human-sized — these are BIG wasps now
+const WASP_WANDER_SPEED = 115;
+const WASP_CHASE_SPEED = 150;
+const WASP_NOTICE_RADIUS = 240;  // starts flying at the player within this range
+const WASP_STING_RADIUS = 34;
 const RESPAWN_INVULN_TIME = 1.8;
 
 const wasps = []; // { x, y, wanderAngle, wingPhase }
@@ -600,9 +601,15 @@ function stingPlayer() {
 }
 
 function drawWasp(w, time) {
-  const bob = Math.sin(time * 5 + w.wingPhase) * 2;
+  // shadow on the ground — scaled with the wasp so something this big
+  // still reads as passing overhead
+  ctx.fillStyle = 'rgba(20,15,5,0.22)';
+  ellipse(ctx, w.x, w.y + 6, 20 * WASP_SCALE * 0.28, 8 * WASP_SCALE * 0.28);
+
+  const bob = Math.sin(time * 4 + w.wingPhase) * 3;
   ctx.save();
-  ctx.translate(w.x, w.y - 10 + bob);
+  ctx.translate(w.x, w.y - 14 + bob);
+  ctx.scale(WASP_SCALE, WASP_SCALE);
 
   const flap = Math.max(0.15, Math.abs(Math.sin(w.wingPhase)));
   ctx.fillStyle = 'rgba(255,255,255,0.65)';
