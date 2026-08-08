@@ -43,6 +43,14 @@ function ellipse(c, x, y, rx, ry, rot = 0) {
   c.fill();
 }
 
+function randomRange(a, b) {
+  return a + Math.random() * (b - a);
+}
+
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
 // ---------- World constants ----------
 const FIELD_RADIUS = 900;
 const SPEED = 260;              // px/sec
@@ -54,6 +62,193 @@ const GIRLFRIEND_COLLISION_RADIUS = 32;
 const PLAYER_RADIUS = 15;
 
 const PETAL_COLORS = ['#ff6f91', '#ffc145', '#b185db', '#ff8552', '#f8f4ef'];
+
+// ---------- Weather cycle ----------
+// Several weather "kinds" take turns, each held for a while and
+// crossfaded smoothly into the next one. Each kind defines a tint
+// overlay (as r/g/b/a so it can be blended numerically), whether it
+// rains or snows and how hard, and whether it can throw lightning.
+const WEATHER_KINDS = {
+  sunny:  { overlay: { r: 255, g: 255, b: 255, a: 0.00 }, precip: null,   precipIntensity: 0,   lightning: false },
+  cloudy: { overlay: { r: 130, g: 135, b: 145, a: 0.30 }, precip: null,   precipIntensity: 0,   lightning: false },
+  rain:   { overlay: { r: 60,  g: 75,  b: 95,  a: 0.38 }, precip: 'rain', precipIntensity: 1,   lightning: false },
+  storm:  { overlay: { r: 40,  g: 45,  b: 60,  a: 0.52 }, precip: 'rain', precipIntensity: 1.7, lightning: true  },
+  snow:   { overlay: { r: 210, g: 220, b: 235, a: 0.18 }, precip: 'snow', precipIntensity: 1,   lightning: false },
+  fog:    { overlay: { r: 222, g: 226, b: 230, a: 0.48 }, precip: null,   precipIntensity: 0,   lightning: false },
+};
+const WEATHER_ORDER = Object.keys(WEATHER_KINDS);
+
+function weatherDuration(kind) {
+  // Sunny spells run longest; everything else is shorter and passing.
+  switch (kind) {
+    case 'sunny':  return randomRange(55, 95);
+    case 'cloudy': return randomRange(30, 55);
+    case 'rain':   return randomRange(20, 40);
+    case 'storm':  return randomRange(15, 28);
+    case 'snow':   return randomRange(25, 45);
+    case 'fog':    return randomRange(20, 40);
+    default:       return 40;
+  }
+}
+
+function pickNextWeather(exclude) {
+  const options = WEATHER_ORDER.filter(k => k !== exclude);
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+const WEATHER = {
+  current: 'sunny',
+  next: null,
+  timeInState: 0,
+  stateDuration: weatherDuration('sunny'),
+  crossfade: 0,           // 0 = fully `current`, 1 = fully `next` (only set mid-transition)
+  crossfadeLength: 6,     // seconds to blend between weather kinds
+  lightningFlash: 0,      // 0..1, brief white flash during storms
+  lightningTimer: randomRange(4, 9),
+};
+
+function updateWeather(dt) {
+  if (WEATHER.next) {
+    WEATHER.crossfade = clamp(WEATHER.crossfade + dt / WEATHER.crossfadeLength, 0, 1);
+    if (WEATHER.crossfade >= 1) {
+      WEATHER.current = WEATHER.next;
+      WEATHER.next = null;
+      WEATHER.crossfade = 0;
+      WEATHER.timeInState = 0;
+      WEATHER.stateDuration = weatherDuration(WEATHER.current);
+    }
+  } else {
+    WEATHER.timeInState += dt;
+    if (WEATHER.timeInState >= WEATHER.stateDuration) {
+      WEATHER.next = pickNextWeather(WEATHER.current);
+      WEATHER.crossfade = 0;
+    }
+  }
+
+  const inStorm = WEATHER.current === 'storm' || WEATHER.next === 'storm';
+  if (inStorm) {
+    WEATHER.lightningTimer -= dt;
+    if (WEATHER.lightningTimer <= 0) {
+      WEATHER.lightningFlash = 1;
+      WEATHER.lightningTimer = randomRange(3, 9);
+    }
+  }
+  WEATHER.lightningFlash = Math.max(0, WEATHER.lightningFlash - dt * 3.2);
+}
+
+function currentOverlay() {
+  const a = WEATHER_KINDS[WEATHER.current].overlay;
+  if (!WEATHER.next) return a;
+  const b = WEATHER_KINDS[WEATHER.next].overlay;
+  const t = WEATHER.crossfade;
+  return {
+    r: a.r + (b.r - a.r) * t,
+    g: a.g + (b.g - a.g) * t,
+    b: a.b + (b.b - a.b) * t,
+    a: a.a + (b.a - a.a) * t,
+  };
+}
+
+function currentPrecip() {
+  const curKind = WEATHER_KINDS[WEATHER.current];
+  if (!WEATHER.next) {
+    return { type: curKind.precip, intensity: curKind.precipIntensity };
+  }
+  const nextKind = WEATHER_KINDS[WEATHER.next];
+  const t = WEATHER.crossfade;
+  if (curKind.precip === nextKind.precip) {
+    return {
+      type: curKind.precip,
+      intensity: curKind.precipIntensity + (nextKind.precipIntensity - curKind.precipIntensity) * t,
+    };
+  }
+  // Different precipitation types: fade the old one out, then the new one in.
+  if (t < 0.5) return { type: curKind.precip, intensity: curKind.precipIntensity * (1 - t * 2) };
+  return { type: nextKind.precip, intensity: nextKind.precipIntensity * ((t - 0.5) * 2) };
+}
+
+// ---------- Precipitation particles (screen-space, cheap) ----------
+const MAX_PRECIP = 220;
+
+function makeRainDrop() {
+  return { x: Math.random(), y: Math.random(), len: randomRange(10, 22), speed: randomRange(650, 950), drift: randomRange(-70, -40) };
+}
+function makeSnowFlake() {
+  return { x: Math.random(), y: Math.random(), r: randomRange(1.5, 3.5), speed: randomRange(60, 140), drift: randomRange(-15, 15), sway: Math.random() * Math.PI * 2 };
+}
+const rainDrops = Array.from({ length: MAX_PRECIP }, makeRainDrop);
+const snowFlakes = Array.from({ length: MAX_PRECIP }, makeSnowFlake);
+
+function updatePrecipitation(dt) {
+  const precip = currentPrecip();
+  if (precip.type === 'rain' && precip.intensity > 0) {
+    for (const d of rainDrops) {
+      d.y += (d.speed * dt) / canvas.height;
+      d.x += (d.drift * dt) / canvas.width;
+      if (d.y > 1) { d.y = -0.02; d.x = Math.random(); }
+      if (d.x < 0) d.x = 1;
+      if (d.x > 1) d.x = 0;
+    }
+  } else if (precip.type === 'snow' && precip.intensity > 0) {
+    for (const f of snowFlakes) {
+      f.sway += dt * 1.3;
+      f.y += (f.speed * dt) / canvas.height;
+      f.x += ((f.drift + Math.sin(f.sway) * 20) * dt) / canvas.width;
+      if (f.y > 1) { f.y = -0.02; f.x = Math.random(); }
+      if (f.x < 0) f.x = 1;
+      if (f.x > 1) f.x = 0;
+    }
+  }
+}
+
+function drawPrecipitation() {
+  const precip = currentPrecip();
+  if (!precip.type || precip.intensity <= 0.01) return;
+  const amount = clamp(precip.intensity, 0, 1);
+  ctx.save();
+  if (precip.type === 'rain') {
+    ctx.globalAlpha = amount * 0.55;
+    ctx.strokeStyle = '#cfe3f2';
+    ctx.lineWidth = 1.4;
+    const count = Math.floor(MAX_PRECIP * amount);
+    for (let i = 0; i < count; i++) {
+      const d = rainDrops[i];
+      const x = d.x * canvas.width, y = d.y * canvas.height;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - 5, y + d.len);
+      ctx.stroke();
+    }
+  } else if (precip.type === 'snow') {
+    ctx.globalAlpha = amount * 0.85;
+    ctx.fillStyle = '#ffffff';
+    const count = Math.floor(MAX_PRECIP * amount * 0.6);
+    for (let i = 0; i < count; i++) {
+      const f = snowFlakes[i];
+      const x = f.x * canvas.width, y = f.y * canvas.height;
+      ctx.beginPath();
+      ctx.arc(x, y, f.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawWeatherOverlay() {
+  const o = currentOverlay();
+  if (o.a > 0.01) {
+    ctx.save();
+    ctx.fillStyle = `rgba(${o.r | 0}, ${o.g | 0}, ${o.b | 0}, ${o.a})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+  if (WEATHER.lightningFlash > 0.01) {
+    ctx.save();
+    ctx.fillStyle = `rgba(255,255,255,${WEATHER.lightningFlash * 0.65})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+  }
+}
 
 // ---------- Grass texture (pre-rendered once, tiled at draw time) ----------
 const TILE = 160;
@@ -239,11 +434,24 @@ function drawBush(x, y) {
 const trees = [];   // collidable: { x, y }
 const bushes = [];  // decorative only, no collision
 
-const RING_COUNT = 30;
-for (let i = 0; i < RING_COUNT; i++) {
-  const angle = (i / RING_COUNT) * Math.PI * 2;
-  const r = FIELD_RADIUS + 20 + Math.random() * 50;
-  trees.push({ x: Math.cos(angle) * r, y: Math.sin(angle) * r });
+// Trees are planted along a heart-shaped curve ringing the meadow,
+// instead of a plain circle. Classic parametric heart:
+//   x(t) = 16 sin^3(t)
+//   y(t) = 13 cos(t) - 5 cos(2t) - 2 cos(3t) - cos(4t)
+// The curve's point (t = pi) is flipped to face down the screen so
+// it reads as a heart with its tip toward the player's start and its
+// two lobes toward the far side of the field.
+const HEART_TREE_COUNT = 46;
+const HEART_SCALE = (FIELD_RADIUS + 70) / 17;
+for (let i = 0; i < HEART_TREE_COUNT; i++) {
+  const t = (i / HEART_TREE_COUNT) * Math.PI * 2;
+  const hx = 16 * Math.pow(Math.sin(t), 3);
+  const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
+  const jitter = randomRange(0.94, 1.06);
+  trees.push({
+    x: hx * HEART_SCALE * jitter,
+    y: -hy * HEART_SCALE * jitter,
+  });
 }
 // two trees flanking the picnic spot, romantic framing
 trees.push({ x: girlfriend.x - 110, y: girlfriend.y - 40 });
@@ -350,6 +558,9 @@ let elapsed = 0;
 
 function update(dt) {
   elapsed += dt;
+
+  updateWeather(dt);
+  updatePrecipitation(dt);
 
   // --- movement ---
   let mx = 0, my = 0;
@@ -478,6 +689,12 @@ function render() {
   ctx.globalAlpha = 1;
 
   ctx.restore();
+
+  // Weather effects are drawn in screen space, after the camera
+  // transform is restored, so rain/snow falls straight down over the
+  // whole viewport regardless of where the player is standing.
+  drawWeatherOverlay();
+  drawPrecipitation();
 }
 
 function loop(now) {
