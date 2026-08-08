@@ -81,15 +81,15 @@ const WEATHER_KINDS = {
 const WEATHER_ORDER = Object.keys(WEATHER_KINDS);
 
 function weatherDuration(kind) {
-  // Sunny spells run longest; everything else is shorter and passing.
+  // Durations halved so weathers change much faster
   switch (kind) {
-    case 'sunny':  return randomRange(55, 95);
-    case 'cloudy': return randomRange(30, 55);
-    case 'rain':   return randomRange(20, 40);
-    case 'storm':  return randomRange(15, 28);
-    case 'snow':   return randomRange(25, 45);
-    case 'fog':    return randomRange(20, 40);
-    default:       return 40;
+    case 'sunny':  return randomRange(25, 45);
+    case 'cloudy': return randomRange(15, 25);
+    case 'rain':   return randomRange(10, 20);
+    case 'storm':  return randomRange(7, 14);
+    case 'snow':   return randomRange(12, 22);
+    case 'fog':    return randomRange(10, 20);
+    default:       return 20;
   }
 }
 
@@ -104,7 +104,7 @@ const WEATHER = {
   timeInState: 0,
   stateDuration: weatherDuration('sunny'),
   crossfade: 0,           // 0 = fully `current`, 1 = fully `next` (only set mid-transition)
-  crossfadeLength: 6,     // seconds to blend between weather kinds
+  crossfadeLength: 3,     // seconds to blend between weather kinds (halved to match faster weather)
   lightningFlash: 0,      // 0..1, brief white flash during storms
   lightningTimer: randomRange(4, 9),
 };
@@ -513,9 +513,9 @@ function drawButterfly(x, y, color, flap) {
 // carrying, and gives a moment of invulnerability so you're not
 // instantly re-stung. More wasps join the meadow the more flowers
 // you've delivered, so it gets harder as you succeed.
-const WASP_BASE_COUNT = 2;
-const WASP_MAX_COUNT = 14;
-const WASP_PER_FLOWERS = 3;      // +1 wasp for every N flowers given
+const WASP_BASE_COUNT = 1;       // Reduced start from 2 to 1
+const WASP_MAX_COUNT = 8;        // Capped maximum quantity at 8 instead of 14
+const WASP_PER_FLOWERS = 6;      // Requires giving 6 flowers instead of 3 to spawn a new wasp
 const WASP_SCALE = 1.5;          // Half-sized — these used to be 3.0
 const WASP_WANDER_SPEED = 145;   // Faster wander (used to be 115)
 const WASP_CHASE_SPEED = 190;    // Faster chase (used to be 150)
