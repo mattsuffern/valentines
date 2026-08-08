@@ -1,7 +1,9 @@
 /* ------------------------------------------------------------------
    A WALK IN THE MEADOW
-   A cozy, top-down, no-fail game: walk around, pick flowers, bring
-   them to your girlfriend. Nothing to lose, nowhere to rush.
+   A cozy, top-down game: walk around, pick flowers, bring them to
+   your girlfriend — but watch out for wasps. Touch one and you get
+   stung, drop whatever you're carrying, and get bounced back to the
+   start with a moment of safety before they can catch you again.
 
    Everything here is drawn with the Canvas 2D API — no external
    libraries, no CDN, no WebGL. That keeps it small, fast, and safe
@@ -293,12 +295,14 @@ function makePerson(x, y, palette) {
 }
 
 const player = makePerson(0, 320, {
-  skin: '#e8b98a', hair: '#3b2a20', body: '#4c7ba6'
+  skin: '#e8b98a', hair: '#3b2a20', body: '#8a5c3c', outfit: 'shirt', hairLong: false
 });
 player.carrying = 0;
+player.invulnerable = false;
+player.invulnTimer = 0;
 
 const girlfriend = makePerson(0, -560, {
-  skin: '#efc49b', hair: '#4a2e1e', body: '#e8607a'
+  skin: '#efc49b', hair: '#5c3a22', body: '#4a78c9', outfit: 'dress', hairLong: true
 });
 girlfriend.facing = 'down';
 girlfriend.given = 0;
@@ -323,10 +327,22 @@ function drawPerson(p, isGirlfriend) {
   ellipse(ctx, x - 13, cy + 3, 4, 6);
   ellipse(ctx, x + 13, cy + 3, 4, 6);
 
-  // body
-  ctx.fillStyle = palette.body;
-  roundRectPath(ctx, x - 11, cy - 2, 22, 20, 8);
-  ctx.fill();
+  // body: a flared dress or a plain shirt torso
+  if (palette.outfit === 'dress') {
+    ctx.fillStyle = palette.body;
+    ctx.beginPath();
+    ctx.moveTo(x - 8, cy + 4);
+    ctx.lineTo(x + 8, cy + 4);
+    ctx.lineTo(x + 15, cy + 21);
+    ctx.quadraticCurveTo(x, cy + 26, x - 15, cy + 21);
+    ctx.closePath();
+    ctx.fill();
+    roundRectPath(ctx, x - 10, cy - 2, 20, 14, 7);
+    ctx.fill();
+  } else {
+    roundRectPath(ctx, x - 11, cy - 2, 22, 20, 8);
+    ctx.fill();
+  }
 
   // head
   ctx.fillStyle = palette.skin;
@@ -349,6 +365,13 @@ function drawPerson(p, isGirlfriend) {
     } else if (facing === 'right') {
       circle(ctx, x + 5, cy - 14, 1.6);
     }
+  }
+
+  // long hair draping past the shoulders
+  if (palette.hairLong) {
+    ctx.fillStyle = palette.hair;
+    ellipse(ctx, x - 11, cy - 3, 4.5, 13);
+    ellipse(ctx, x + 11, cy - 3, 4.5, 13);
   }
 
   if (isGirlfriend) {
@@ -485,6 +508,118 @@ function drawButterfly(x, y, color, flap) {
   ctx.restore();
 }
 
+// ---------- Wasps (danger) ----------
+// Touching one sends you back to the start, drops whatever you're
+// carrying, and gives a moment of invulnerability so you're not
+// instantly re-stung. More wasps join the meadow the more flowers
+// you've delivered, so it gets harder as you succeed.
+const WASP_BASE_COUNT = 2;
+const WASP_MAX_COUNT = 14;
+const WASP_PER_FLOWERS = 3;      // +1 wasp for every N flowers given
+const WASP_WANDER_SPEED = 150;
+const WASP_CHASE_SPEED = 195;
+const WASP_NOTICE_RADIUS = 220;  // starts flying at the player within this range
+const WASP_STING_RADIUS = 20;
+const RESPAWN_INVULN_TIME = 1.8;
+
+const wasps = []; // { x, y, wanderAngle, wingPhase }
+
+function wantedWaspCount() {
+  return clamp(WASP_BASE_COUNT + Math.floor(girlfriend.given / WASP_PER_FLOWERS), WASP_BASE_COUNT, WASP_MAX_COUNT);
+}
+
+function spawnWasp() {
+  let x, y, tries = 0;
+  do {
+    const angle = Math.random() * Math.PI * 2;
+    const r = randomRange(220, FIELD_RADIUS - 50);
+    x = Math.cos(angle) * r;
+    y = Math.sin(angle) * r;
+    tries++;
+  } while (Math.hypot(x - player.x, y - player.y) < 260 && tries < 20);
+  wasps.push({ x, y, wanderAngle: Math.random() * Math.PI * 2, wingPhase: Math.random() * Math.PI * 2 });
+}
+
+function updateWasps(dt) {
+  const target = wantedWaspCount();
+  while (wasps.length < target) spawnWasp();
+  while (wasps.length > target) wasps.pop();
+
+  wasps.forEach(w => {
+    w.wingPhase += dt * 46;
+    const dxToPlayer = player.x - w.x;
+    const dyToPlayer = player.y - w.y;
+    const distToPlayer = Math.hypot(dxToPlayer, dyToPlayer);
+
+    let dx, dy;
+    if (distToPlayer < WASP_NOTICE_RADIUS) {
+      // aggravated: buzzes toward the player, but not in a straight line
+      w.wanderAngle += (Math.random() - 0.5) * 0.5;
+      dx = dxToPlayer / (distToPlayer || 1) + Math.cos(w.wanderAngle) * 0.5;
+      dy = dyToPlayer / (distToPlayer || 1) + Math.sin(w.wanderAngle) * 0.5;
+      const len = Math.hypot(dx, dy) || 1;
+      w.x += (dx / len) * WASP_CHASE_SPEED * dt;
+      w.y += (dy / len) * WASP_CHASE_SPEED * dt;
+    } else {
+      // idle wandering
+      w.wanderAngle += (Math.random() - 0.5) * 6 * dt;
+      w.x += Math.cos(w.wanderAngle) * WASP_WANDER_SPEED * dt;
+      w.y += Math.sin(w.wanderAngle) * WASP_WANDER_SPEED * dt;
+    }
+
+    // stay loosely within the meadow
+    const d = Math.hypot(w.x, w.y);
+    if (d > FIELD_RADIUS - 20) {
+      const s = (FIELD_RADIUS - 20) / d;
+      w.x *= s; w.y *= s;
+      w.wanderAngle += Math.PI;
+    }
+  });
+
+  if (player.invulnerable) {
+    player.invulnTimer -= dt;
+    if (player.invulnTimer <= 0) player.invulnerable = false;
+  } else {
+    for (const w of wasps) {
+      if (Math.hypot(w.x - player.x, w.y - player.y) < WASP_STING_RADIUS + PLAYER_RADIUS * 0.6) {
+        stingPlayer();
+        break;
+      }
+    }
+  }
+}
+
+function stingPlayer() {
+  spawnFloater('🐝💥', player.x, player.y - 20);
+  player.carrying = 0;
+  updateUI();
+  player.x = 0;
+  player.y = 320;
+  player.invulnerable = true;
+  player.invulnTimer = RESPAWN_INVULN_TIME;
+}
+
+function drawWasp(w, time) {
+  const bob = Math.sin(time * 5 + w.wingPhase) * 2;
+  ctx.save();
+  ctx.translate(w.x, w.y - 10 + bob);
+
+  const flap = Math.max(0.15, Math.abs(Math.sin(w.wingPhase)));
+  ctx.fillStyle = 'rgba(255,255,255,0.65)';
+  ctx.save(); ctx.rotate(-0.35); ctx.scale(1, flap); ellipse(ctx, -3, -3, 6, 3.2); ctx.restore();
+  ctx.save(); ctx.rotate(0.35); ctx.scale(1, flap); ellipse(ctx, 3, -3, 6, 3.2); ctx.restore();
+
+  ctx.fillStyle = '#241c12';
+  ellipse(ctx, 0, 0, 7, 4.2);
+  ctx.fillStyle = '#ffcc33';
+  ellipse(ctx, -2.2, 0, 1.8, 4);
+  ellipse(ctx, 2.2, 0, 1.8, 4);
+  ctx.fillStyle = '#241c12';
+  circle(ctx, 6.5, 0, 2.6);
+
+  ctx.restore();
+}
+
 // ---------- Picnic blanket ----------
 function drawBlanket() {
   ctx.fillStyle = 'rgba(30,20,10,0.12)';
@@ -601,6 +736,8 @@ function update(dt) {
   girlfriend.idlePhase += dt * 1.2;
   if (girlfriend.waveTimer > 0) girlfriend.waveTimer -= dt;
 
+  updateWasps(dt);
+
   // --- flower pickup ---
   if (player.carrying < MAX_CARRY) {
     for (let i = flowers.length - 1; i >= 0; i--) {
@@ -656,6 +793,7 @@ function render() {
   trees.forEach(t => drawables.push({ y: t.y, draw: () => drawTree(t.x, t.y) }));
   bushes.forEach(b => drawables.push({ y: b.y, draw: () => drawBush(b.x, b.y) }));
   flowers.forEach(f => drawables.push({ y: f.y, draw: () => drawFlower(f.x, f.y, f.color, 1, f.phase, elapsed) }));
+  wasps.forEach(w => drawables.push({ y: w.y, draw: () => drawWasp(w, elapsed) }));
   drawables.push({
     y: girlfriend.y,
     draw: () => {
@@ -666,8 +804,13 @@ function render() {
   drawables.push({
     y: player.y,
     draw: () => {
+      ctx.save();
+      if (player.invulnerable) {
+        ctx.globalAlpha = (Math.floor(elapsed * 10) % 2 === 0) ? 1 : 0.35;
+      }
       const cy = drawPerson(player, false);
       if (player.carrying > 0) drawHeldBouquet(player, cy, elapsed);
+      ctx.restore();
     }
   });
   drawables.sort((a, b) => a.y - b.y);
