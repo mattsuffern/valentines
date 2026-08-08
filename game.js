@@ -55,7 +55,7 @@ function clamp(v, lo, hi) {
 
 // ---------- World constants ----------
 const FIELD_RADIUS = 1300;
-const BASE_SPEED = 260;         // px/sec
+const SPEED = 260;              // px/sec
 const MAX_CARRY = 6;
 const PICKUP_RADIUS = 42;
 const DELIVER_RADIUS = 72;
@@ -65,21 +65,30 @@ const PLAYER_RADIUS = 15;
 
 const PETAL_COLORS = ['#ff6f91', '#ffc145', '#b185db', '#ff8552', '#f8f4ef'];
 
-// ---------- Weather cycle (Sunny, Cloudy, Rain, Storm) ----------
+// ---------- Weather cycle ----------
+// Several weather "kinds" take turns, each held for a while and
+// crossfaded smoothly into the next one. Each kind defines a tint
+// overlay (as r/g/b/a so it can be blended numerically), whether it
+// rains or snows and how hard, and whether it can throw lightning.
 const WEATHER_KINDS = {
   sunny:  { overlay: { r: 255, g: 255, b: 255, a: 0.00 }, precip: null,   precipIntensity: 0,   lightning: false },
   cloudy: { overlay: { r: 130, g: 135, b: 145, a: 0.30 }, precip: null,   precipIntensity: 0,   lightning: false },
   rain:   { overlay: { r: 60,  g: 75,  b: 95,  a: 0.38 }, precip: 'rain', precipIntensity: 1,   lightning: false },
   storm:  { overlay: { r: 40,  g: 45,  b: 60,  a: 0.52 }, precip: 'rain', precipIntensity: 1.7, lightning: true  },
+  snow:   { overlay: { r: 210, g: 220, b: 235, a: 0.18 }, precip: 'snow', precipIntensity: 1,   lightning: false },
+  fog:    { overlay: { r: 222, g: 226, b: 230, a: 0.48 }, precip: null,   precipIntensity: 0,   lightning: false },
 };
 const WEATHER_ORDER = Object.keys(WEATHER_KINDS);
 
 function weatherDuration(kind) {
+  // Durations halved so weathers change much faster
   switch (kind) {
     case 'sunny':  return randomRange(25, 45);
     case 'cloudy': return randomRange(15, 25);
     case 'rain':   return randomRange(10, 20);
     case 'storm':  return randomRange(7, 14);
+    case 'snow':   return randomRange(12, 22);
+    case 'fog':    return randomRange(10, 20);
     default:       return 20;
   }
 }
@@ -94,9 +103,9 @@ const WEATHER = {
   next: null,
   timeInState: 0,
   stateDuration: weatherDuration('sunny'),
-  crossfade: 0,
-  crossfadeLength: 3,
-  lightningFlash: 0,
+  crossfade: 0,           // 0 = fully `current`, 1 = fully `next` (only set mid-transition)
+  crossfadeLength: 3,     // seconds to blend between weather kinds (halved to match faster weather)
+  lightningFlash: 0,      // 0..1, brief white flash during storms
   lightningTimer: randomRange(4, 9),
 };
 
@@ -155,43 +164,22 @@ function currentPrecip() {
       intensity: curKind.precipIntensity + (nextKind.precipIntensity - curKind.precipIntensity) * t,
     };
   }
+  // Different precipitation types: fade the old one out, then the new one in.
   if (t < 0.5) return { type: curKind.precip, intensity: curKind.precipIntensity * (1 - t * 2) };
   return { type: nextKind.precip, intensity: nextKind.precipIntensity * ((t - 0.5) * 2) };
 }
 
-// ---------- Day & Night Cycle ----------
-let globalTimeOfDay = 0; // 0 to 1 cycle
-
-function updateDayNight(dt) {
-  globalTimeOfDay = (globalTimeOfDay + dt * 0.008) % 1;
-}
-
-function getDayNightOverlay() {
-  // 0.0 = Noon, 0.25 = Evening/Golden Hour, 0.5 = Night, 0.75 = Morning
-  let alpha = 0;
-  let r = 20, g = 20, b = 50;
-  const t = globalTimeOfDay;
-  if (t > 0.35 && t < 0.65) {
-    // Night
-    alpha = 0.42;
-  } else if (t >= 0.25 && t <= 0.35) {
-    // Evening transition
-    alpha = ((t - 0.25) / 0.1) * 0.35;
-    r = 90; g = 40; b = 30;
-  } else if (t >= 0.65 && t <= 0.75) {
-    // Morning transition
-    alpha = (1 - (t - 0.65) / 0.1) * 0.35;
-    r = 80; g = 50; b = 40;
-  }
-  return { r, g, b, a };
-}
-
-// ---------- Precipitation particles ----------
+// ---------- Precipitation particles (screen-space, cheap) ----------
 const MAX_PRECIP = 220;
+
 function makeRainDrop() {
   return { x: Math.random(), y: Math.random(), len: randomRange(10, 22), speed: randomRange(650, 950), drift: randomRange(-70, -40) };
 }
+function makeSnowFlake() {
+  return { x: Math.random(), y: Math.random(), r: randomRange(1.5, 3.5), speed: randomRange(60, 140), drift: randomRange(-15, 15), sway: Math.random() * Math.PI * 2 };
+}
 const rainDrops = Array.from({ length: MAX_PRECIP }, makeRainDrop);
+const snowFlakes = Array.from({ length: MAX_PRECIP }, makeSnowFlake);
 
 function updatePrecipitation(dt) {
   const precip = currentPrecip();
@@ -202,6 +190,15 @@ function updatePrecipitation(dt) {
       if (d.y > 1) { d.y = -0.02; d.x = Math.random(); }
       if (d.x < 0) d.x = 1;
       if (d.x > 1) d.x = 0;
+    }
+  } else if (precip.type === 'snow' && precip.intensity > 0) {
+    for (const f of snowFlakes) {
+      f.sway += dt * 1.3;
+      f.y += (f.speed * dt) / canvas.height;
+      f.x += ((f.drift + Math.sin(f.sway) * 20) * dt) / canvas.width;
+      if (f.y > 1) { f.y = -0.02; f.x = Math.random(); }
+      if (f.x < 0) f.x = 1;
+      if (f.x > 1) f.x = 0;
     }
   }
 }
@@ -224,6 +221,17 @@ function drawPrecipitation() {
       ctx.lineTo(x - 5, y + d.len);
       ctx.stroke();
     }
+  } else if (precip.type === 'snow') {
+    ctx.globalAlpha = amount * 0.85;
+    ctx.fillStyle = '#ffffff';
+    const count = Math.floor(MAX_PRECIP * amount * 0.6);
+    for (let i = 0; i < count; i++) {
+      const f = snowFlakes[i];
+      const x = f.x * canvas.width, y = f.y * canvas.height;
+      ctx.beginPath();
+      ctx.arc(x, y, f.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
   ctx.restore();
 }
@@ -236,13 +244,6 @@ function drawWeatherOverlay() {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.restore();
   }
-  const dn = getDayNightOverlay();
-  if (dn.a > 0.01) {
-    ctx.save();
-    ctx.fillStyle = `rgba(${dn.r}, ${dn.g}, ${dn.b}, ${dn.a})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.restore();
-  }
   if (WEATHER.lightningFlash > 0.01) {
     ctx.save();
     ctx.fillStyle = `rgba(255,255,255,${WEATHER.lightningFlash * 0.65})`;
@@ -251,7 +252,7 @@ function drawWeatherOverlay() {
   }
 }
 
-// ---------- Grass texture & Environmental Creek ----------
+// ---------- Grass texture (pre-rendered once, tiled at draw time) ----------
 const TILE = 160;
 const grassTile = document.createElement('canvas');
 grassTile.width = grassTile.height = TILE;
@@ -286,50 +287,6 @@ function drawGround(camX, camY) {
       ctx.drawImage(grassTile, sx, sy);
     }
   }
-
-  // Draw winding creek path
-  ctx.save();
-  ctx.fillStyle = '#5aa9c4';
-  ctx.strokeStyle = '#3e88a2';
-  ctx.lineWidth = 4;
-  ctx.beginPath();
-  for (let wx = -FIELD_RADIUS; wx <= FIELD_RADIUS; wx += 40) {
-    const wy = Math.sin(wx * 0.002) * 350 + 100;
-    const sx = canvas.width / 2 - camX + wx;
-    const sy = canvas.height / 2 - camY + wy;
-    if (wx === -FIELD_RADIUS) ctx.moveTo(sx, sy);
-    else ctx.lineTo(sx, sy);
-  }
-  ctx.lineTo(canvas.width / 2 - camX + FIELD_RADIUS, canvas.height / 2 - camY + FIELD_RADIUS);
-  ctx.lineTo(canvas.width / 2 - camX - FIELD_RADIUS, canvas.height / 2 - camY + FIELD_RADIUS);
-  ctx.fill();
-  ctx.restore();
-
-  // Draw stepping stones on creek
-  steppingStones.forEach(stone => {
-    const sx = canvas.width / 2 - camX + stone.x;
-    const sy = canvas.height / 2 - camY + stone.y;
-    ctx.fillStyle = '#b0b8bc';
-    ellipse(ctx, sx, sy, 14, 8);
-  });
-}
-
-const steppingStones = [];
-for (let wx = -800; wx <= 800; wx += 120) {
-  const wy = Math.sin(wx * 0.002) * 350 + 100;
-  steppingStones.push({ x: wx, y: wy });
-}
-
-function isPlayerInCreek(x, y) {
-  const creekY = Math.sin(x * 0.002) * 350 + 100;
-  if (Math.abs(y - creekY) < 25) {
-    // Check if close to any stepping stone
-    for (const stone of steppingStones) {
-      if (Math.hypot(x - stone.x, y - stone.y) < 20) return false;
-    }
-    return true;
-  }
-  return false;
 }
 
 // ---------- People ----------
@@ -343,8 +300,6 @@ const player = makePerson(0, 480, {
 player.carrying = 0;
 player.invulnerable = false;
 player.invulnTimer = 0;
-player.speedBoostTimer = 0;
-player.lavenderAuraTimer = 0;
 
 const girlfriend = makePerson(0, -260, {
   skin: '#efc49b', hair: '#5c3a22', body: '#8a5fd6', outfit: 'dress', hairLength: 8
@@ -358,17 +313,21 @@ function drawPerson(p, isGirlfriend) {
   const cy = y - bounce;
   const step = walking ? Math.sin(walkPhase) * 5 : 0;
 
+  // shadow
   ctx.fillStyle = 'rgba(30,20,10,0.25)';
   ellipse(ctx, x, y + 4, 15, 6);
 
+  // feet
   ctx.fillStyle = '#3a2a1e';
   ellipse(ctx, x - 6, cy + 14 + Math.max(0, step), 4, 3);
   ellipse(ctx, x + 6, cy + 14 + Math.max(0, -step), 4, 3);
 
+  // arm nubs
   ctx.fillStyle = palette.body;
   ellipse(ctx, x - 13, cy + 3, 4, 6);
   ellipse(ctx, x + 13, cy + 3, 4, 6);
 
+  // body: a flared dress or a plain shirt torso
   if (palette.outfit === 'dress') {
     ctx.fillStyle = palette.body;
     ctx.beginPath();
@@ -385,9 +344,11 @@ function drawPerson(p, isGirlfriend) {
     ctx.fill();
   }
 
+  // head
   ctx.fillStyle = palette.skin;
   circle(ctx, x, cy - 15, 13);
 
+  // hair + face
   ctx.fillStyle = palette.hair;
   if (facing === 'up') {
     circle(ctx, x, cy - 15, 13.5);
@@ -406,6 +367,7 @@ function drawPerson(p, isGirlfriend) {
     }
   }
 
+  // hair draping past the shoulders — length varies per character
   if (palette.hairLength > 0) {
     ctx.fillStyle = palette.hair;
     ellipse(ctx, x - 11, cy - 1, 4.5, palette.hairLength);
@@ -413,6 +375,7 @@ function drawPerson(p, isGirlfriend) {
   }
 
   if (isGirlfriend) {
+    // a little flower crown instead of the old sparkle accents
     drawFlower(x - 8, cy - 26, '#ff8552', 0.35, 0.4, elapsed);
     drawFlower(x, cy - 29, '#ffc145', 0.4, 1.1, elapsed);
     drawFlower(x + 8, cy - 26, '#b185db', 0.35, 2.0, elapsed);
@@ -421,7 +384,7 @@ function drawPerson(p, isGirlfriend) {
   return cy;
 }
 
-// ---------- Flowers & Special Types ----------
+// ---------- Flowers ----------
 function drawFlower(x, y, color, scale, phase, time) {
   ctx.save();
   ctx.translate(x, y);
@@ -441,7 +404,7 @@ function drawFlower(x, y, color, scale, phase, time) {
   ctx.restore();
 }
 
-const flowers = []; 
+const flowers = []; // { x, y, color, phase, id }
 let flowerIdCounter = 0;
 
 function randomFieldSpot(minDist) {
@@ -458,29 +421,18 @@ function randomFieldSpot(minDist) {
 
 function spawnFlower() {
   const { x, y } = randomFieldSpot(60);
-  const rand = Math.random();
-  let type = 'normal';
-  let color = PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)];
-  if (rand < 0.1) { type = 'golden'; color = '#ffdf00'; }
-  else if (rand < 0.22) { type = 'lavender'; color = '#a685e2'; }
-  else if (rand < 0.32) { type = 'sunflower'; color = '#ff9900'; }
-
-  flowers.push({ x, y, color, type, phase: Math.random() * Math.PI * 2, id: flowerIdCounter++ });
+  flowers.push({
+    x, y,
+    color: PETAL_COLORS[Math.floor(Math.random() * PETAL_COLORS.length)],
+    phase: Math.random() * Math.PI * 2,
+    id: flowerIdCounter++
+  });
 }
 
 const MAX_FLOWERS = 50;
 for (let i = 0; i < MAX_FLOWERS; i++) spawnFlower();
 
-// ---------- Honey Jars (Distraction Items) ----------
-const honeyJars = [];
-function dropHoneyJar() {
-  if (honeyJars.length < 3) {
-    honeyJars.push({ x: player.x, y: player.y, timer: 10 });
-    spawnFloater('🍯', player.x, player.y - 15);
-  }
-}
-
-// ---------- Trees & Bushes ----------
+// ---------- Trees / bushes ----------
 function drawTree(x, y) {
   ctx.fillStyle = 'rgba(30,20,10,0.22)';
   ellipse(ctx, x, y + 4, 20, 7);
@@ -502,9 +454,16 @@ function drawBush(x, y) {
   circle(ctx, x - 5, y - 8, 9);
 }
 
-const trees = [];
-const bushes = [];
+const trees = [];   // collidable: { x, y }
+const bushes = [];  // decorative only, no collision
 
+// Trees are planted along a heart-shaped curve ringing the meadow,
+// instead of a plain circle. Classic parametric heart:
+//   x(t) = 16 sin^3(t)
+//   y(t) = 13 cos(t) - 5 cos(2t) - 2 cos(3t) - cos(4t)
+// The curve's point (t = pi) is flipped to face down the screen so
+// it reads as a heart with its tip toward the player's start and its
+// two lobes toward the far side of the field.
 const HEART_TREE_COUNT = 60;
 const HEART_SCALE = (FIELD_RADIUS + 90) / 17;
 for (let i = 0; i < HEART_TREE_COUNT; i++) {
@@ -512,8 +471,12 @@ for (let i = 0; i < HEART_TREE_COUNT; i++) {
   const hx = 16 * Math.pow(Math.sin(t), 3);
   const hy = 13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t);
   const jitter = randomRange(0.94, 1.06);
-  trees.push({ x: hx * HEART_SCALE * jitter, y: -hy * HEART_SCALE * jitter });
+  trees.push({
+    x: hx * HEART_SCALE * jitter,
+    y: -hy * HEART_SCALE * jitter,
+  });
 }
+// two trees flanking the picnic spot, romantic framing
 trees.push({ x: girlfriend.x - 110, y: girlfriend.y - 40 });
 trees.push({ x: girlfriend.x + 120, y: girlfriend.y - 20 });
 
@@ -522,7 +485,7 @@ for (let i = 0; i < 10; i++) {
   bushes.push({ x, y });
 }
 
-// ---------- Butterflies & Fireflies ----------
+// ---------- Butterflies (purely decorative) ----------
 const butterflies = [];
 for (let i = 0; i < 4; i++) {
   butterflies.push({
@@ -545,46 +508,22 @@ function drawButterfly(x, y, color, flap) {
   ctx.restore();
 }
 
-const fireflies = Array.from({ length: 25 }, () => ({
-  x: randomRange(-FIELD_RADIUS, FIELD_RADIUS),
-  y: randomRange(-FIELD_RADIUS, FIELD_RADIUS),
-  phase: Math.random() * Math.PI * 2,
-  speed: randomRange(20, 40)
-}));
-
-function updateFireflies(dt) {
-  fireflies.forEach(f => {
-    f.phase += dt * 2;
-    f.x += Math.sin(f.phase) * f.speed * dt;
-    f.y += Math.cos(f.phase) * f.speed * dt;
-  });
-}
-
-function drawFireflies() {
-  if (globalTimeOfDay > 0.35 && globalTimeOfDay < 0.65) {
-    ctx.save();
-    ctx.fillStyle = '#ffff66';
-    fireflies.forEach(f => {
-      const alpha = Math.abs(Math.sin(elapsed * 2 + f.phase));
-      ctx.globalAlpha = alpha;
-      circle(ctx, f.x, f.y, 2.5);
-    });
-    ctx.restore();
-  }
-}
-
-// ---------- Wasps ----------
-const WASP_BASE_COUNT = 1;
-const WASP_MAX_COUNT = 8;
-const WASP_PER_FLOWERS = 6;
-const WASP_SCALE = 1.5;
-const WASP_WANDER_SPEED = 145;
-const WASP_CHASE_SPEED = 190;
-const WASP_NOTICE_RADIUS = 240;
-const WASP_STING_RADIUS = 17;
+// ---------- Wasps (danger) ----------
+// Touching one sends you back to the start, drops whatever you're
+// carrying, and gives a moment of invulnerability so you're not
+// instantly re-stung. More wasps join the meadow the more flowers
+// you've delivered, so it gets harder as you succeed.
+const WASP_BASE_COUNT = 1;       // Reduced start from 2 to 1
+const WASP_MAX_COUNT = 8;        // Capped maximum quantity at 8 instead of 14
+const WASP_PER_FLOWERS = 6;      // Requires giving 6 flowers instead of 3 to spawn a new wasp
+const WASP_SCALE = 1.5;          // Half-sized — these used to be 3.0
+const WASP_WANDER_SPEED = 145;   // Faster wander (used to be 115)
+const WASP_CHASE_SPEED = 190;    // Faster chase (used to be 150)
+const WASP_NOTICE_RADIUS = 240;  // starts flying at the player within this range
+const WASP_STING_RADIUS = 17;    // Halved from 34 to match the new visual size
 const RESPAWN_INVULN_TIME = 1.8;
 
-const wasps = [];
+const wasps = []; // { x, y, wanderAngle, wingPhase }
 
 function wantedWaspCount() {
   return clamp(WASP_BASE_COUNT + Math.floor(girlfriend.given / WASP_PER_FLOWERS), WASP_BASE_COUNT, WASP_MAX_COUNT);
@@ -609,51 +548,27 @@ function updateWasps(dt) {
 
   wasps.forEach(w => {
     w.wingPhase += dt * 46;
-
-    // Check if distracted by a honey jar
-    let targetX = player.x;
-    let targetY = player.y;
-    let isDistracted = false;
-
-    if (player.lavenderAuraTimer > 0) {
-      // Repelled by lavender aura
-      const distToPlayer = Math.hypot(player.x - w.x, player.y - w.y);
-      if (distToPlayer < 180) {
-        const dx = w.x - player.x;
-        const dy = w.y - player.y;
-        w.x += (dx / (distToPlayer || 1)) * WASP_CHASE_SPEED * dt;
-        w.y += (dy / (distToPlayer || 1)) * WASP_CHASE_SPEED * dt;
-        return;
-      }
-    }
-
-    for (const jar of honeyJars) {
-      if (Math.hypot(jar.x - w.x, jar.y - w.y) < 220) {
-        targetX = jar.x;
-        targetY = jar.y;
-        isDistracted = true;
-        break;
-      }
-    }
-
-    const dxToTarget = targetX - w.x;
-    const dyToTarget = targetY - w.y;
-    const distToTarget = Math.hypot(dxToTarget, dyToTarget);
+    const dxToPlayer = player.x - w.x;
+    const dyToPlayer = player.y - w.y;
+    const distToPlayer = Math.hypot(dxToPlayer, dyToPlayer);
 
     let dx, dy;
-    if (isDistracted || distToTarget < WASP_NOTICE_RADIUS) {
+    if (distToPlayer < WASP_NOTICE_RADIUS) {
+      // aggravated: buzzes toward the player, but not in a straight line
       w.wanderAngle += (Math.random() - 0.5) * 0.5;
-      dx = dxToTarget / (distToTarget || 1) + Math.cos(w.wanderAngle) * 0.5;
-      dy = dyToTarget / (distToTarget || 1) + Math.sin(w.wanderAngle) * 0.5;
+      dx = dxToPlayer / (distToPlayer || 1) + Math.cos(w.wanderAngle) * 0.5;
+      dy = dyToPlayer / (distToPlayer || 1) + Math.sin(w.wanderAngle) * 0.5;
       const len = Math.hypot(dx, dy) || 1;
       w.x += (dx / len) * WASP_CHASE_SPEED * dt;
       w.y += (dy / len) * WASP_CHASE_SPEED * dt;
     } else {
+      // idle wandering
       w.wanderAngle += (Math.random() - 0.5) * 6 * dt;
       w.x += Math.cos(w.wanderAngle) * WASP_WANDER_SPEED * dt;
       w.y += Math.sin(w.wanderAngle) * WASP_WANDER_SPEED * dt;
     }
 
+    // stay loosely within the meadow
     const d = Math.hypot(w.x, w.y);
     if (d > FIELD_RADIUS - 20) {
       const s = (FIELD_RADIUS - 20) / d;
@@ -686,6 +601,8 @@ function stingPlayer() {
 }
 
 function drawWasp(w, time) {
+  // shadow on the ground — scaled with the wasp so something this big
+  // still reads as passing overhead
   ctx.fillStyle = 'rgba(20,15,5,0.22)';
   ellipse(ctx, w.x, w.y + 6, 20 * WASP_SCALE * 0.28, 8 * WASP_SCALE * 0.28);
 
@@ -710,7 +627,7 @@ function drawWasp(w, time) {
   ctx.restore();
 }
 
-// ---------- Picnic Blanket & Evolution ----------
+// ---------- Picnic blanket ----------
 function drawBlanket() {
   ctx.fillStyle = 'rgba(30,20,10,0.12)';
   ellipse(ctx, girlfriend.x, girlfriend.y + 6, 62, 26);
@@ -721,30 +638,10 @@ function drawBlanket() {
   ctx.beginPath();
   ctx.ellipse(girlfriend.x, girlfriend.y, 60, 24, 0, 0, Math.PI * 2);
   ctx.stroke();
-
-  // Evolve picnic items based on delivered flowers
-  if (girlfriend.given >= 10) {
-    // Picnic basket
-    ctx.fillStyle = '#a06631';
-    roundRectPath(ctx, girlfriend.x - 12, girlfriend.y - 8, 24, 14, 4);
-    ctx.fill();
-  }
-  if (girlfriend.given >= 20) {
-    // Teapot & cups
-    ctx.fillStyle = '#ffffff';
-    circle(ctx, girlfriend.x + 22, girlfriend.y - 2, 6);
-    circle(ctx, girlfriend.x + 12, girlfriend.y + 4, 3);
-  }
-  if (girlfriend.given >= 30) {
-    // Book / Guitar
-    ctx.fillStyle = '#8b4513';
-    roundRectPath(ctx, girlfriend.x - 28, girlfriend.y + 2, 14, 10, 2);
-    ctx.fill();
-  }
 }
 
 // ---------- Floating feedback text ----------
-const floaters = []; 
+const floaters = []; // { x, y, text, life, maxLife }
 function spawnFloater(text, x, y) {
   floaters.push({ x, y, text, life: 1.1, maxLife: 1.1 });
 }
@@ -761,11 +658,7 @@ function drawHeldBouquet(p, cy, time) {
 
 // ---------- Input ----------
 const keys = {};
-document.addEventListener('keydown', (e) => { 
-  keys[e.code] = true; 
-  hideIntro(); 
-  if (e.code === 'Space') dropHoneyJar();
-});
+document.addEventListener('keydown', (e) => { keys[e.code] = true; hideIntro(); });
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
 
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
@@ -809,17 +702,7 @@ function update(dt) {
   elapsed += dt;
 
   updateWeather(dt);
-  updateDayNight(dt);
   updatePrecipitation(dt);
-  updateFireflies(dt);
-
-  if (player.speedBoostTimer > 0) player.speedBoostTimer -= dt;
-  if (player.lavenderAuraTimer > 0) player.lavenderAuraTimer -= dt;
-
-  for (let i = honeyJars.length - 1; i >= 0; i--) {
-    honeyJars[i].timer -= dt;
-    if (honeyJars[i].timer <= 0) honeyJars.splice(i, 1);
-  }
 
   // --- movement ---
   let mx = 0, my = 0;
@@ -833,22 +716,19 @@ function update(dt) {
     const len = Math.hypot(mx, my);
     mx /= len; my /= len;
 
-    let currentSpeed = BASE_SPEED;
-    if (player.speedBoostTimer > 0) currentSpeed *= 1.4;
-    if (isPlayerInCreek(player.x, player.y)) currentSpeed *= 0.65;
-
-    const nx = player.x + mx * currentSpeed * dt;
+    const nx = player.x + mx * SPEED * dt;
     const obstacles = [...trees, { x: girlfriend.x, y: girlfriend.y }];
     const radii = trees.map(() => TREE_COLLISION_RADIUS).concat([GIRLFRIEND_COLLISION_RADIUS]);
     if (!collidesMixed(nx, player.y, PLAYER_RADIUS, obstacles, radii)) player.x = nx;
 
-    const ny = player.y + my * currentSpeed * dt;
+    const ny = player.y + my * SPEED * dt;
     if (!collidesMixed(player.x, ny, PLAYER_RADIUS, obstacles, radii)) player.y = ny;
 
     if (Math.abs(mx) > Math.abs(my)) player.facing = mx > 0 ? 'right' : 'left';
     else player.facing = my > 0 ? 'down' : 'up';
   }
 
+  // keep inside the meadow clearing
   const dist = Math.hypot(player.x, player.y);
   if (dist > FIELD_RADIUS) {
     const s = FIELD_RADIUS / dist;
@@ -871,21 +751,8 @@ function update(dt) {
       const f = flowers[i];
       if (Math.hypot(f.x - player.x, f.y - player.y) < PICKUP_RADIUS) {
         flowers.splice(i, 1);
-        
-        if (f.type === 'golden') {
-          player.speedBoostTimer = 6;
-          spawnFloater('⚡ Speed Up!', f.x, f.y - 10);
-        } else if (f.type === 'lavender') {
-          player.lavenderAuraTimer = 6;
-          spawnFloater('💜 Scent Aura!', f.x, f.y - 10);
-        } else if (f.type === 'sunflower') {
-          player.carrying = Math.min(MAX_CARRY, player.carrying + 2);
-          spawnFloater('🌻 Double!', f.x, f.y - 10);
-        } else {
-          player.carrying++;
-          spawnFloater('🌸', f.x, f.y - 10);
-        }
-
+        spawnFloater('🌸', f.x, f.y - 10);
+        player.carrying++;
         updateUI();
         setTimeout(spawnFlower, 2500 + Math.random() * 3000);
         if (player.carrying >= MAX_CARRY) break;
@@ -902,6 +769,7 @@ function update(dt) {
     girlfriend.waveTimer = 1.0;
   }
 
+  // --- floaters ---
   for (let i = floaters.length - 1; i >= 0; i--) {
     const fl = floaters[i];
     fl.y -= dt * 30;
@@ -909,6 +777,7 @@ function update(dt) {
     if (fl.life <= 0) floaters.splice(i, 1);
   }
 
+  // --- butterflies ---
   butterflies.forEach(b => { b.t += dt; });
 }
 
@@ -927,17 +796,10 @@ function render() {
 
   drawBlanket();
 
-  // Draw honey jars
-  honeyJars.forEach(jar => {
-    ctx.fillStyle = '#e5a93b';
-    roundRectPath(ctx, jar.x - 6, jar.y - 6, 12, 12, 3);
-    ctx.fill();
-  });
-
   const drawables = [];
   trees.forEach(t => drawables.push({ y: t.y, draw: () => drawTree(t.x, t.y) }));
   bushes.forEach(b => drawables.push({ y: b.y, draw: () => drawBush(b.x, b.y) }));
-  flowers.forEach(f => drawables.push({ y: f.y, draw: () => drawFlower(f.x, f.y, f.color, f.type === 'sunflower' ? 1.3 : 1, f.phase, elapsed) }));
+  flowers.forEach(f => drawables.push({ y: f.y, draw: () => drawFlower(f.x, f.y, f.color, 1, f.phase, elapsed) }));
   wasps.forEach(w => drawables.push({ y: w.y, draw: () => drawWasp(w, elapsed) }));
   drawables.push({
     y: girlfriend.y,
@@ -967,8 +829,6 @@ function render() {
     drawButterfly(x, y, b.color, Math.sin(b.t * 14));
   });
 
-  drawFireflies();
-
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '26px sans-serif';
@@ -980,6 +840,9 @@ function render() {
 
   ctx.restore();
 
+  // Weather effects are drawn in screen space, after the camera
+  // transform is restored, so rain/snow falls straight down over the
+  // whole viewport regardless of where the player is standing.
   drawWeatherOverlay();
   drawPrecipitation();
 }
