@@ -919,34 +919,45 @@ let musicGain = null;
 let musicStarted = false;
 let musicMuted = false;
 // Expanded to 8 notes (added C5, D5, and E5) to give the melody more vertical range
+// A sweeping 12-note palette spanning from a deep D3 up to C5.
+// This is tuned to A Minor, with a special G# added for classical tension.
 const MELODY_NOTES = [
-  261.63, // 0: C4
-  293.66, // 1: D4
-  329.63, // 2: E4
-  392.00, // 3: G4
-  440.00, // 4: A4
-  523.25, // 5: C5
-  587.33, // 6: D5
-  659.25  // 7: E5
+  146.83, // 0: D3 (Deep Bass)
+  164.81, // 1: E3 
+  174.61, // 2: F3 
+  220.00, // 3: A3 
+  246.94, // 4: B3 
+  261.63, // 5: C4 
+  293.66, // 6: D4 
+  329.63, // 7: E4 
+  349.23, // 8: F4 
+  415.30, // 9: G#4 (The "Bach" harmonic tension note)
+  440.00, // 10: A4 
+  523.25  // 11: C5 (Peak)
 ];
 
-// A 64-note loop organized into distinct musical sections
+// 128 notes. Play this continuously and fairly fast (like 16th notes).
 const MELODY_PATTERN = [
-  // Section A: The Main Theme (Familiar and grounded)
-  0, 2, 4, 2, 3, 1, 0, 2,
-  0, 2, 4, 5, 4, 2, 1, 2,
+  // --- SECTION A: The Bach Prelude (Rolling Arpeggios) ---
+  // A Minor chord rising and falling
+  3, 7, 10, 11, 10, 7, 3, 7,   3, 7, 10, 11, 10, 7, 3, 7,
+  // F Major chord shifting the emotion
+  2, 5, 8, 10, 8, 5, 2, 5,     2, 5, 8, 10, 8, 5, 2, 5,
+  // D Minor descending into the bass
+  0, 3, 6, 8, 6, 3, 0, 3,      0, 3, 6, 8, 6, 3, 0, 3,
+  // E Major chord (uses the G# for dramatic classical resolution)
+  1, 4, 7, 9, 7, 4, 1, 4,      1, 4, 7, 9, 7, 4, 1, 4,
 
-  // Section B: The Bridge (Moves to the higher octave to build energy)
-  4, 5, 6, 5, 4, 2, 3, 4,
-  4, 5, 6, 7, 6, 5, 4, 5,
-
-  // Section A: Return to the Main Theme (Brings the player back home)
-  0, 2, 4, 2, 3, 1, 0, 2,
-  0, 2, 4, 5, 4, 2, 1, 2,
-
-  // Section C: The Resolution (Winds down to seamlessly loop back to the start)
-  3, 4, 2, 3, 1, 2, 0, 1,
-  4, 2, 3, 1, 2, 0, 0, 0
+  // --- SECTION B: The Max Richter Ostinato (Cinematic Swell) ---
+  // The bassline keeps moving, but the high A and C notes repeat persistently (Pedal Point)
+  // A Minor
+  3, 10, 7, 10, 11, 10, 7, 10,  3, 10, 7, 10, 11, 10, 7, 10,
+  // F Major
+  2, 10, 8, 10, 11, 10, 8, 10,  2, 10, 8, 10, 11, 10, 8, 10,
+  // D Minor
+  0, 10, 6, 10, 8, 10, 6, 10,   0, 10, 6, 10, 8, 10, 6, 10,
+  // E Major (The high A suspends beautifully over the G# before resolving)
+  1, 9, 7, 9, 10, 9, 7, 9,      1, 9, 7, 9, 10, 9, 7, 9
 ];
 const NOTE_DURATION = 0.9; // seconds between note starts
 let melodyStep = 0;
