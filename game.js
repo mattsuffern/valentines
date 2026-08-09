@@ -918,9 +918,36 @@ let audioCtx = null;
 let musicGain = null;
 let musicStarted = false;
 let musicMuted = false;
+// Expanded to 8 notes (added C5, D5, and E5) to give the melody more vertical range
+const MELODY_NOTES = [
+  261.63, // 0: C4
+  293.66, // 1: D4
+  329.63, // 2: E4
+  392.00, // 3: G4
+  440.00, // 4: A4
+  523.25, // 5: C5
+  587.33, // 6: D5
+  659.25  // 7: E5
+];
 
-const MELODY_NOTES = [261.63, 293.66, 329.63, 392.00, 440.00]; // C4 D4 E4 G4 A4, pentatonic
-const MELODY_PATTERN = [0, 2, 4, 2, 3, 1, 0, 4, 3, 2, 0, 2];
+// A 64-note loop organized into distinct musical sections
+const MELODY_PATTERN = [
+  // Section A: The Main Theme (Familiar and grounded)
+  0, 2, 4, 2, 3, 1, 0, 2,
+  0, 2, 4, 5, 4, 2, 1, 2,
+
+  // Section B: The Bridge (Moves to the higher octave to build energy)
+  4, 5, 6, 5, 4, 2, 3, 4,
+  4, 5, 6, 7, 6, 5, 4, 5,
+
+  // Section A: Return to the Main Theme (Brings the player back home)
+  0, 2, 4, 2, 3, 1, 0, 2,
+  0, 2, 4, 5, 4, 2, 1, 2,
+
+  // Section C: The Resolution (Winds down to seamlessly loop back to the start)
+  3, 4, 2, 3, 1, 2, 0, 1,
+  4, 2, 3, 1, 2, 0, 0, 0
+];
 const NOTE_DURATION = 0.9; // seconds between note starts
 let melodyStep = 0;
 let nextNoteTime = 0;
