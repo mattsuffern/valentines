@@ -14,6 +14,9 @@
      - Drop a honey jar (E / Space / the honey button) to lure wasps
        away from you for a few seconds, clearing a safe window to
        harvest nearby flowers.
+     - A quiet, synthesized pentatonic melody loops in the background
+       (Web Audio API, no audio files); mute it from the top-right
+       button any time.
 
    Everything here is drawn with the Canvas 2D API — no external
    libraries, no CDN, no WebGL. That keeps it small, fast, and safe
@@ -111,17 +114,28 @@ const WEATHER_ORDER = Object.keys(WEATHER_KINDS);
 
 function weatherDuration(kind) {
   switch (kind) {
-    case 'sunny':  return randomRange(25, 45);
-    case 'cloudy': return randomRange(15, 25);
+    case 'sunny':  return randomRange(90, 160); // long, comfortable stretches
+    case 'cloudy': return randomRange(20, 35);
     case 'rain':   return randomRange(10, 20);
     case 'storm':  return randomRange(7, 14);
     default:       return 20;
   }
 }
 
+// Weighted so sunny is by far the most likely thing to come next —
+// rain and storms still happen, just as occasional visitors rather
+// than a regular part of the rotation.
+const WEATHER_WEIGHTS = { sunny: 6, cloudy: 3, rain: 1.3, storm: 0.5 };
+
 function pickNextWeather(exclude) {
   const options = WEATHER_ORDER.filter(k => k !== exclude);
-  return options[Math.floor(Math.random() * options.length)];
+  const totalWeight = options.reduce((sum, k) => sum + WEATHER_WEIGHTS[k], 0);
+  let r = Math.random() * totalWeight;
+  for (const k of options) {
+    r -= WEATHER_WEIGHTS[k];
+    if (r <= 0) return k;
+  }
+  return options[options.length - 1];
 }
 
 const WEATHER = {
@@ -887,23 +901,101 @@ function drawPlayerAuras(p) {
   }
 }
 
+// ---------- Ambient melody ----------
+// A short, quiet pentatonic loop, synthesized entirely with the Web
+// Audio API — no audio files, no CDN. Each "note" is just an
+// oscillator with a soft volume envelope (gentle fade in, slower
+// fade out) so it sounds like a music box rather than a beep.
+// Notes are scheduled a couple of seconds ahead of time using the
+// audio clock (audioCtx.currentTime), which keeps the timing steady
+// even if the browser drops a few animation frames.
+//
+// Browsers block audio until the page has been interacted with, so
+// the AudioContext is created — and the loop started — on the first
+// keypress, click, or touch, piggybacking on the same gesture that
+// already dismisses the intro text.
+let audioCtx = null;
+let musicGain = null;
+let musicStarted = false;
+let musicMuted = false;
+
+const MELODY_NOTES = [261.63, 293.66, 329.63, 392.00, 440.00]; // C4 D4 E4 G4 A4, pentatonic
+const MELODY_PATTERN = [0, 2, 4, 2, 3, 1, 0, 4, 3, 2, 0, 2];
+const NOTE_DURATION = 0.9; // seconds between note starts
+let melodyStep = 0;
+let nextNoteTime = 0;
+
+function initAudio() {
+  if (audioCtx) return;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return; // very old browser, just skip music
+  audioCtx = new AudioContextClass();
+  musicGain = audioCtx.createGain();
+  musicGain.gain.value = musicMuted ? 0 : 0.05; // deliberately quiet — "a slight melody"
+  musicGain.connect(audioCtx.destination);
+}
+
+function playNote(freq, time) {
+  const osc = audioCtx.createOscillator();
+  const noteGain = audioCtx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  osc.connect(noteGain);
+  noteGain.connect(musicGain);
+
+  noteGain.gain.setValueAtTime(0, time);
+  noteGain.gain.linearRampToValueAtTime(0.9, time + 0.15);
+  noteGain.gain.linearRampToValueAtTime(0, time + NOTE_DURATION * 1.4);
+
+  osc.start(time);
+  osc.stop(time + NOTE_DURATION * 1.5);
+}
+
+function scheduleMelody() {
+  if (!audioCtx) return;
+  while (nextNoteTime < audioCtx.currentTime + 2) {
+    const idx = MELODY_PATTERN[melodyStep % MELODY_PATTERN.length];
+    playNote(MELODY_NOTES[idx], nextNoteTime);
+    nextNoteTime += NOTE_DURATION;
+    melodyStep++;
+  }
+}
+
+function startMusic() {
+  initAudio();
+  if (!audioCtx) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (musicStarted) return;
+  musicStarted = true;
+  nextNoteTime = audioCtx.currentTime + 0.2;
+  melodyStep = 0;
+}
+
+function toggleMute() {
+  musicMuted = !musicMuted;
+  if (musicGain) musicGain.gain.value = musicMuted ? 0 : 0.05;
+  updateMuteButton();
+}
+
 // ---------- Input ----------
 const keys = {};
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   hideIntro();
+  startMusic();
   if (e.code === 'Space') e.preventDefault();
   if ((e.code === 'KeyE' || e.code === 'Space') && !e.repeat) {
     placeHoneyJar();
   }
 });
 document.addEventListener('keyup', (e) => { keys[e.code] = false; });
+canvas.addEventListener('click', () => { hideIntro(); startMusic(); });
 
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
   document.getElementById('touch-controls').style.display = 'block';
   const bind = (id, code) => {
     const el = document.getElementById(id);
-    const set = (v) => (e) => { e.preventDefault(); keys[code] = v; if (v) hideIntro(); };
+    const set = (v) => (e) => { e.preventDefault(); keys[code] = v; if (v) { hideIntro(); startMusic(); } };
     el.addEventListener('touchstart', set(true), { passive: false });
     el.addEventListener('touchend', set(false), { passive: false });
     el.addEventListener('touchcancel', set(false), { passive: false });
@@ -979,6 +1071,33 @@ function updateAbilityHud() {
 }
 updateAbilityHud();
 
+// Mute toggle for the ambient melody.
+const muteBtn = document.createElement('button');
+muteBtn.id = 'btn-mute';
+Object.assign(muteBtn.style, {
+  position: 'fixed',
+  top: '16px',
+  right: '16px',
+  width: '40px',
+  height: '40px',
+  borderRadius: '50%',
+  border: 'none',
+  background: 'rgba(25,20,10,0.55)',
+  color: '#fff6df',
+  fontSize: '18px',
+  cursor: 'pointer',
+  zIndex: 30,
+});
+document.body.appendChild(muteBtn);
+function updateMuteButton() {
+  muteBtn.textContent = musicMuted ? '🔇' : '🎵';
+}
+updateMuteButton();
+muteBtn.addEventListener('click', () => {
+  startMusic();
+  toggleMute();
+});
+
 // ---------- Main loop ----------
 let lastTime = performance.now();
 let elapsed = 0;
@@ -991,6 +1110,7 @@ function update(dt) {
   updatePrecipitation(dt);
   updateFireflies(dt);
   updateHoneyJars(dt);
+  scheduleMelody();
 
   if (player.speedBoostTimer > 0) player.speedBoostTimer = Math.max(0, player.speedBoostTimer - dt);
   if (player.repelTimer > 0) player.repelTimer = Math.max(0, player.repelTimer - dt);
@@ -1132,8 +1252,6 @@ function render() {
     drawButterfly(x, y, b.color, Math.sin(b.t * 14));
   });
 
-  drawFireflies();
-
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.font = '26px sans-serif';
@@ -1152,6 +1270,15 @@ function render() {
   // it, so a rainy night reads as both dark and wet.
   drawDayNightOverlay();
   drawWeatherOverlay();
+
+  // Fireflies are drawn AFTER those overlays (in a fresh camera pass)
+  // so their glow sits on top of the night tint instead of getting
+  // painted over by it — that was the bug hiding them before.
+  ctx.save();
+  ctx.translate(canvas.width / 2 - player.x, canvas.height / 2 - player.y);
+  drawFireflies();
+  ctx.restore();
+
   drawPrecipitation();
 }
 
